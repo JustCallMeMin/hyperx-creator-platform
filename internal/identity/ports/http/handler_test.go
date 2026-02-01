@@ -8,9 +8,11 @@ import (
 	"net/http/httptest"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	id_postgres "github.com/hyperx/backend/internal/identity/adapters/postgres"
+	"github.com/hyperx/backend/internal/identity/adapters/sessions"
 	id_service "github.com/hyperx/backend/internal/identity/service"
 	"github.com/hyperx/backend/internal/pkg/authority"
 	"github.com/hyperx/backend/internal/pkg/database"
@@ -42,8 +44,9 @@ func TestHandler_Integration(t *testing.T) {
 	authResolver := authority.NewResolver(nil)
 	accSvc := id_service.NewAccountService(accRepo, authResolver)
 	creSvc := id_service.NewCreatorService(creRepo, accRepo, authResolver)
+	authSvc := id_service.NewAuthService(accRepo, sessions.NewJWTManager("secret", 1*time.Hour))
 
-	h := NewHandler(accSvc, creSvc)
+	h := NewHandler(accSvc, creSvc, authSvc)
 	r := chi.NewRouter()
 	h.Routes(r)
 

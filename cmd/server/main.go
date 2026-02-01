@@ -18,6 +18,7 @@ import (
 	gov_http "github.com/hyperx/backend/internal/governance/ports/http"
 	gov_service "github.com/hyperx/backend/internal/governance/service"
 	id_postgres "github.com/hyperx/backend/internal/identity/adapters/postgres"
+	"github.com/hyperx/backend/internal/identity/adapters/sessions"
 	id_http "github.com/hyperx/backend/internal/identity/ports/http"
 	id_service "github.com/hyperx/backend/internal/identity/service"
 	"github.com/hyperx/backend/internal/pkg/authority"
@@ -52,13 +53,26 @@ func main() {
 	// 3. Initialize Shared Authority Resolver
 	authResolver := authority.NewResolver(adminActionRepo)
 
-	// 4. Initialize Services
+	// 4. Initialize Core Security & Sessions
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		jwtSecret = "development-secret-key-please-change"
+	}
+	jwtDurationStr := os.Getenv("JWT_DURATION_HOURS")
+	jwtDuration := 24 * time.Hour
+	if d, err := time.ParseDuration(jwtDurationStr + "h"); err == nil {
+		jwtDuration = d
+	}
+	jwtManager := sessions.NewJWTManager(jwtSecret, jwtDuration)
+
+	// 5. Initialize Services
 	accountService := id_service.NewAccountService(accountRepo, authResolver)
 	creatorService := id_service.NewCreatorService(creatorRepo, accountRepo, authResolver)
 	adminService := gov_service.NewAdminService(adminActionRepo)
+	authService := id_service.NewAuthService(accountRepo, jwtManager)
 
-	// 5. Initialize HTTP Handlers
-	identityHandler := id_http.NewHandler(accountService, creatorService)
+	// 6. Initialize HTTP Handlers
+	identityHandler := id_http.NewHandler(accountService, creatorService, authService)
 	governanceHandler := gov_http.NewHandler(adminService)
 
 	// 6. Setup Router
@@ -79,8 +93,16 @@ func main() {
 
 	// Register API Routes
 	r.Route("/api/v1", func(r chi.Router) {
-		identityHandler.Routes(r)
-		governanceHandler.Routes(r)
+		// Public routes (Login & Account Creation)
+		r.Group(func(r chi.Router) {
+			identityHandler.Routes(r)
+		})
+
+		// Protected routes (Governance & Sensitive Identity)
+		r.Group(func(r chi.Router) {
+			r.Use(id_http.AuthMiddleware(jwtManager))
+			governanceHandler.Routes(r)
+		})
 	})
 
 	// Server configuration

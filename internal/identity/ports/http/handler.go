@@ -12,16 +12,22 @@ import (
 type Handler struct {
 	accountService *service.AccountService
 	creatorService *service.CreatorService
+	authService    *service.AuthService
 }
 
-func NewHandler(accountService *service.AccountService, creatorService *service.CreatorService) *Handler {
+func NewHandler(accountService *service.AccountService, creatorService *service.CreatorService, authService *service.AuthService) *Handler {
 	return &Handler{
 		accountService: accountService,
 		creatorService: creatorService,
+		authService:    authService,
 	}
 }
 
 func (h *Handler) Routes(r chi.Router) {
+	r.Route("/auth", func(r chi.Router) {
+		r.Post("/login", h.Login)
+	})
+
 	r.Route("/accounts", func(r chi.Router) {
 		r.Post("/", h.CreateAccount)
 		r.Get("/{id}", h.GetAccount)
@@ -54,6 +60,32 @@ func (h *Handler) CreateAccount(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(acc)
+}
+
+type LoginRequest struct {
+	Email    string `json:"email"`
+	Password string `json:"password"`
+}
+
+type LoginResponse struct {
+	Token string `json:"token"`
+}
+
+func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+	var req LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	token, err := h.authService.Login(r.Context(), req.Email, req.Password)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(LoginResponse{Token: token})
 }
 
 func (h *Handler) GetAccount(w http.ResponseWriter, r *http.Request) {
